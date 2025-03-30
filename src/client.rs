@@ -1,7 +1,7 @@
 use crate::cli::Command;
 use crate::config::Config;
+use crate::snap;
 use anyhow::{anyhow, Context, Result};
-use std::env;
 use std::ffi::OsString;
 use std::fs;
 use std::io::{stdout, Write};
@@ -34,15 +34,9 @@ pub fn run(cmd: Command, config_path: PathBuf) -> Result<()> {
 }
 
 fn init(config_path: PathBuf, sites_enabled_dir: Option<PathBuf>) -> Result<()> {
-    let nginx_dir = if let Some(dir) = sites_enabled_dir {
-        dir
-    } else if let Ok(val) = env::var("SNAP_COMMON") {
-        // We're running in a snap
-        Path::new(&val).join("nginx-sites-enabled")
-    } else {
-        // XXX: this will blow away any conflicting nginx configs...
-        PathBuf::from("/etc/nginx/sites-enabled")
-    };
+    let nginx_dir = sites_enabled_dir.unwrap_or_else(|| {
+        snap::nginx_sites_enabled_dir().unwrap_or(PathBuf::from("/etc/nginx/sites-enabled"))
+    });
     let config = Config::new(nginx_dir.clone());
     if fs::exists(&config_path)
         .with_context(|| format!("Failed to check if config file exists: {config_path:?}"))?

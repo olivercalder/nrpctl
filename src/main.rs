@@ -1,11 +1,11 @@
 use anyhow::Result;
 use clap::Parser;
-use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 mod cli;
 mod client;
 mod config;
+mod snap;
 // TODO: mod certbot;
 // TODO: mod nginx;
 
@@ -14,14 +14,9 @@ use crate::cli::Cli;
 fn main() -> Result<()> {
     let args = Cli::parse();
 
-    let path = if let Some(path) = args.config {
-        path
-    } else if let Ok(val) = env::var("SNAP_COMMON") {
-        // We're running in a snap
-        Path::new(&val).join("config.toml")
-    } else {
-        PathBuf::from("/etc/nrpctl/config.toml")
-    };
+    let path = args
+        .config
+        .unwrap_or_else(|| snap::config_path().unwrap_or(PathBuf::from("/etc/nrpctl/config.toml")));
 
     client::run(args.command, path)
 }
