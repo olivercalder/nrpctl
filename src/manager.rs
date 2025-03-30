@@ -1,12 +1,12 @@
 use crate::cli::Command;
 use crate::config::Config;
+use anyhow::{anyhow, Context, Result};
 use std::env;
-use std::error::Error;
 use std::fs;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
 
-pub fn run(cmd: Command, config_path: PathBuf) -> Result<(), Box<dyn Error>> {
+pub fn run(cmd: Command, config_path: PathBuf) -> Result<()> {
     match cmd {
         Command::Init { sites_enabled_dir } => init(config_path, sites_enabled_dir),
         Command::Status => status(config_path),
@@ -29,7 +29,7 @@ pub fn run(cmd: Command, config_path: PathBuf) -> Result<(), Box<dyn Error>> {
     }
 }
 
-fn init(config_path: PathBuf, sites_enabled_dir: Option<PathBuf>) -> Result<(), Box<dyn Error>> {
+fn init(config_path: PathBuf, sites_enabled_dir: Option<PathBuf>) -> Result<()> {
     let nginx_dir = if let Some(dir) = sites_enabled_dir {
         dir
     } else if let Ok(val) = env::var("SNAP_COMMON") {
@@ -39,25 +39,25 @@ fn init(config_path: PathBuf, sites_enabled_dir: Option<PathBuf>) -> Result<(), 
         // XXX: this will blow away any conflicting nginx configs...
         PathBuf::from("/etc/nginx/sites-enabled")
     };
-    let config = Config::new(nginx_dir.into_os_string());
-    if fs::exists(&config_path)? {
-        return Err(format!(
-            "Cannot initialize config: file already exists: {}",
-            config_path.display(),
-        )
-        .into());
+    let config = Config::new(nginx_dir);
+    if fs::exists(&config_path)
+        .with_context(|| format!("Failed to check if config file exists: {config_path:?}"))?
+    {
+        return Err(anyhow!(
+            "Failed to initialize config: file already exists: {config_path:?}"
+        ));
     }
     config.write(&config_path)
 }
 
-fn status(config_path: PathBuf) -> Result<(), Box<dyn Error>> {
+fn status(config_path: PathBuf) -> Result<()> {
     let config = Config::read(&config_path)?;
     // TODO: make nice table instead of just pretty-printing toml
     let table = toml::to_string_pretty(&config)?;
     Ok(stdout().lock().write_all(table.as_bytes())?)
 }
 
-fn render(config_path: PathBuf, listen_domain: Option<String>) -> Result<(), Box<dyn Error>> {
+fn render(config_path: PathBuf, listen_domain: Option<String>) -> Result<()> {
     let config = Config::read(&config_path)?;
     if let Some(domain) = listen_domain {
         let rendered = config.render(&domain)?;
@@ -77,15 +77,13 @@ fn add(
     listen_port: u16,
     dest_domain: String,
     dest_port: u16,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<()> {
     let mut config = Config::read(&config_path)?;
     let listen_domain_clone = listen_domain.clone();
     if config.add(listen_domain, listen_port, dest_domain, dest_port) {
-        return Err(format!(
-            "Proxy already exists with the given domain: {}",
-            listen_domain_clone,
-        )
-        .into());
+        return Err(anyhow!(
+            "Proxy already exists with the given domain: {listen_domain_clone}",
+        ));
     }
     // TODO: render to the appropriate directory nginx directory
     // TODO: test the configuration properly using nginx -t
@@ -94,7 +92,7 @@ fn add(
     config.write(&config_path)
 }
 
-fn remove(config_path: PathBuf, listen_domain: String) -> Result<(), Box<dyn Error>> {
+fn remove(config_path: PathBuf, listen_domain: String) -> Result<()> {
     let mut config = Config::read(&config_path)?;
     config.remove(&listen_domain); // treat remove as idempotent, don't error
 
@@ -105,14 +103,12 @@ fn remove(config_path: PathBuf, listen_domain: String) -> Result<(), Box<dyn Err
     config.write(&config_path)
 }
 
-fn disable(config_path: PathBuf, listen_domain: String) -> Result<(), Box<dyn Error>> {
+fn disable(config_path: PathBuf, listen_domain: String) -> Result<()> {
     let mut config = Config::read(&config_path)?;
-    let Some(_) = config.disable(&listen_domain) else {
-        return Err(format!(
-            "Cannot disable proxy which does not exist: {}",
-            listen_domain
-        )
-        .into());
+    if config.disable(&listen_domain).is_none() {
+        return Err(anyhow!(
+            "Cannot disable proxy which does not exist: {listen_domain}",
+        ));
     };
     // TODO: render to the appropriate directory nginx directory
     // TODO: test the configuration properly using nginx -t
@@ -121,14 +117,12 @@ fn disable(config_path: PathBuf, listen_domain: String) -> Result<(), Box<dyn Er
     config.write(&config_path)
 }
 
-fn enable(config_path: PathBuf, listen_domain: String) -> Result<(), Box<dyn Error>> {
+fn enable(config_path: PathBuf, listen_domain: String) -> Result<()> {
     let mut config = Config::read(&config_path)?;
-    let Some(_) = config.enable(&listen_domain) else {
-        return Err(format!(
-            "Cannot enable proxy which does not exist: {}",
-            listen_domain
-        )
-        .into());
+    if config.enable(&listen_domain).is_none() {
+        return Err(anyhow!(
+            "Cannot enable proxy which does not exist: {listen_domain}"
+        ));
     };
     // TODO: render to the appropriate directory nginx directory
     // TODO: test the configuration properly using nginx -t

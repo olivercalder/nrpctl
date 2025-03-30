@@ -1,6 +1,6 @@
+use anyhow::Result;
 use clap::Parser;
 use std::env;
-use std::error::Error;
 use std::path::{Path, PathBuf};
 
 // TODO: mod certbot;
@@ -10,7 +10,7 @@ mod manager;
 
 use crate::cli::Cli;
 
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<()> {
     let args = Cli::parse();
 
     let path = if let Some(path) = args.config {

@@ -1,19 +1,18 @@
+use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::error::Error;
-use std::ffi::OsString;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize)]
 pub struct Config {
-    sites_enabled_dir: OsString,
+    sites_enabled_dir: PathBuf,
     proxies: BTreeMap<String, Proxy>,
 }
 
 impl Config {
     /// Create a new nrpctl config.
-    pub fn new(sites_enabled_dir: OsString) -> Config {
+    pub fn new(sites_enabled_dir: PathBuf) -> Config {
         Config {
             sites_enabled_dir,
             proxies: BTreeMap::new(),
@@ -22,34 +21,46 @@ impl Config {
 
     /// Read and return an existing nrpctl config from the given path. Returns an error if the
     /// config does not exist or cannot be parsed.
-    pub fn read(path: &PathBuf) -> Result<Config, Box<dyn Error>> {
-        let data = fs::read_to_string(path)?;
-        let config: Config = toml::from_str(data.as_str())?;
+    pub fn read(path: &PathBuf) -> Result<Config> {
+        let data = fs::read_to_string(path)
+            .with_context(|| format!("Failed to open config file {}", path.display()))?;
+        let config: Config = toml::from_str(data.as_str())
+            .with_context(|| format!("Failed to parse config file {}", path.display()))?;
         Ok(config)
     }
 
     /// Write the config to disk at the given path. Returns an error if the config cannot be
     /// serialized or the file cannot be written.
-    pub fn write(&self, path: &PathBuf) -> Result<(), Box<dyn Error>> {
-        let data = toml::to_string(self)?;
-        fs::write(path, data)?;
+    pub fn write(&self, path: &PathBuf) -> Result<()> {
+        let data = toml::to_string_pretty(self).context("Failed to format config as toml")?;
+        fs::write(path, data)
+            .with_context(|| format!("Failed to write config file {}", path.display()))?;
         Ok(())
     }
 
-    pub fn write_nginx_sites_enabled(&self) -> Result<(), Box<dyn Error>> {
-        fs::create_dir_all(&self.sites_enabled_dir)?;
+    pub fn write_nginx_sites_enabled(&self) -> Result<()> {
+        fs::create_dir_all(&self.sites_enabled_dir).with_context(|| {
+            format!(
+                "Failed to create nginx sites enabled dir {}",
+                &self.sites_enabled_dir.display()
+            )
+        })?;
         for (domain, proxy) in &self.proxies {
             let path = Path::new(&self.sites_enabled_dir).join(domain);
             let rendered = proxy.render(domain);
-            fs::write(path, rendered)?;
+            fs::write(path, rendered)
+                .context(format!("Failed to write nginx config for {domain}"))?;
         }
         Ok(())
     }
 
     /// Render the nginx configuration for the given domain.
-    pub fn render(&self, listen_domain: &str) -> Result<String, Box<dyn Error>> {
+    pub fn render(&self, listen_domain: &str) -> Result<String> {
         let Some(proxy) = self.proxies.get(listen_domain) else {
-            return Err(format!("Proxy not found for the given domain: {}", listen_domain).into());
+            return Err(anyhow!(
+                "Failed to find proxy for the given domain: {}",
+                listen_domain
+            ));
         };
         let rendered = proxy.render(listen_domain);
         Ok(rendered)
