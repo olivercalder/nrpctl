@@ -40,24 +40,26 @@ impl Config {
     /// serialized or the file cannot be written.
     pub fn write(&self, path: &PathBuf) -> Result<()> {
         let data = toml::to_string_pretty(self).context("Failed to format config as toml")?;
-        fs::write(path, data).context(format!("Failed to write config file {path:?}"))?;
+        fs::write(path, data).context(format!("Failed to write config file: {path:?}"))?;
         Ok(())
     }
 
-    pub fn write_nginx_sites_enabled(&self) -> Result<()> {
-        fs::create_dir_all(&self.sites_enabled_dir).with_context(|| {
-            format!(
-                "Failed to create nginx sites enabled dir {}",
-                &self.sites_enabled_dir.display()
-            )
-        })?;
-        for (domain, proxy) in &self.proxies {
-            let path = Path::new(&self.sites_enabled_dir).join(domain);
-            let rendered = proxy.render(domain);
-            fs::write(path, rendered)
-                .context(format!("Failed to write nginx config for {domain}"))?;
-        }
-        Ok(())
+    /// Render and write the nginx site configuration for the given domain to the sites enabled
+    /// directory.
+    pub fn write_nginx_site(&self, listen_domain: &str) -> Result<()> {
+        let path = Path::new(&self.sites_enabled_dir).join(listen_domain);
+        let rendered = self.render(listen_domain)?;
+        fs::write(&path, rendered).context(format!(
+            "Failed to write nginx config file for {listen_domain}: {path:?}"
+        ))
+    }
+
+    /// Delete the nginx site configuration for the given domain from the sites enabled directory.
+    pub fn delete_nginx_site(&self, listen_domain: &str) -> Result<()> {
+        let path = Path::new(&self.sites_enabled_dir).join(listen_domain);
+        fs::remove_file(&path).context(format!(
+            "Failed to delete nginx config file for {listen_domain}: {path:?}"
+        ))
     }
 
     /// Render the nginx configuration for the given domain.
@@ -174,7 +176,6 @@ server {{
     }}
 
     fastcgi_request_buffering off;
-
     {}
 }}
 ",

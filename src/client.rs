@@ -42,7 +42,7 @@ fn init(config_path: PathBuf, sites_enabled_dir: Option<PathBuf>) -> Result<()> 
         // XXX: this will blow away any conflicting nginx configs...
         PathBuf::from("/etc/nginx/sites-enabled")
     };
-    let config = Config::new(nginx_dir);
+    let config = Config::new(nginx_dir.clone());
     if fs::exists(&config_path)
         .with_context(|| format!("Failed to check if config file exists: {config_path:?}"))?
     {
@@ -50,6 +50,9 @@ fn init(config_path: PathBuf, sites_enabled_dir: Option<PathBuf>) -> Result<()> 
             "Failed to initialize config: file already exists: {config_path:?}"
         ));
     }
+    fs::create_dir_all(&nginx_dir).context(format!(
+        "Failed to create nginx sites enabled dir: {nginx_dir:?}",
+    ))?;
     config.write(&config_path)?;
     println!("Successfully initialized nrpctl config at {config_path:?}");
     Ok(())
@@ -84,28 +87,36 @@ fn add(
     dest_port: u16,
 ) -> Result<()> {
     let mut config = Config::read(&config_path)?;
-    let listen_domain_clone = listen_domain.clone();
-    if config.add(listen_domain, listen_port, dest_domain, dest_port) {
+    if config.add(listen_domain.clone(), listen_port, dest_domain, dest_port) {
         return Err(anyhow!(
-            "Proxy already exists with the given domain: {listen_domain_clone}",
+            "Proxy already exists with the given domain: {listen_domain}",
         ));
     }
-    // TODO: render to the appropriate directory nginx directory
+
+    config.write_nginx_site(&listen_domain)?;
+    // TODO: delete written file if there's a later error
+
     // TODO: test the configuration properly using nginx -t
     let backup_path = config_path.with_extension("config.bak");
     fs::rename(&config_path, backup_path)?;
-    config.write(&config_path)
+    config.write(&config_path)?;
+    println!("Successfully added {listen_domain}");
+    Ok(())
 }
 
 fn remove(config_path: PathBuf, listen_domain: String) -> Result<()> {
     let mut config = Config::read(&config_path)?;
     config.remove(&listen_domain); // treat remove as idempotent, don't error
 
-    // TODO: render to the appropriate directory nginx directory
+    config.delete_nginx_site(&listen_domain)?;
+    // TODO: restore written file if there's a later error
+
     // TODO: test the configuration properly using nginx -t
     let backup_path = config_path.with_extension("config.bak");
     fs::rename(&config_path, backup_path)?;
-    config.write(&config_path)
+    config.write(&config_path)?;
+    println!("Successfully removed {listen_domain}");
+    Ok(())
 }
 
 fn disable(config_path: PathBuf, listen_domain: String) -> Result<()> {
@@ -115,11 +126,16 @@ fn disable(config_path: PathBuf, listen_domain: String) -> Result<()> {
             "Cannot disable proxy which does not exist: {listen_domain}",
         ));
     };
-    // TODO: render to the appropriate directory nginx directory
+
+    config.delete_nginx_site(&listen_domain)?;
+    // TODO: restore written file if there's a later error
+
     // TODO: test the configuration properly using nginx -t
     let backup_path = config_path.with_extension("config.bak");
     fs::rename(&config_path, backup_path)?;
-    config.write(&config_path)
+    config.write(&config_path)?;
+    println!("Successfully disabled {listen_domain}");
+    Ok(())
 }
 
 fn enable(config_path: PathBuf, listen_domain: String) -> Result<()> {
@@ -129,9 +145,14 @@ fn enable(config_path: PathBuf, listen_domain: String) -> Result<()> {
             "Cannot enable proxy which does not exist: {listen_domain}"
         ));
     };
-    // TODO: render to the appropriate directory nginx directory
+
+    config.write_nginx_site(&listen_domain)?;
+    // TODO: delete written file if there's a later error
+
     // TODO: test the configuration properly using nginx -t
     let backup_path = config_path.with_extension("config.bak");
     fs::rename(&config_path, backup_path)?;
-    config.write(&config_path)
+    config.write(&config_path)?;
+    println!("Successfully enabled {listen_domain}");
+    Ok(())
 }
