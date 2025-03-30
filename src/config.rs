@@ -28,7 +28,7 @@ impl Config {
 
     /// Read and return an existing nrpctl config from the given path. Returns an error if the
     /// config does not exist or cannot be parsed.
-    pub fn read(path: &PathBuf) -> Result<Config> {
+    pub fn read(path: &Path) -> Result<Config> {
         let data =
             fs::read_to_string(path).context(format!("Failed to open config file {path:?}"))?;
         let config: Config = toml::from_str(data.as_str())
@@ -38,7 +38,7 @@ impl Config {
 
     /// Write the config to disk at the given path. Returns an error if the config cannot be
     /// serialized or the file cannot be written.
-    pub fn write(&self, path: &PathBuf) -> Result<()> {
+    pub fn write(&self, path: &Path) -> Result<()> {
         let data = toml::to_string_pretty(self).context("Failed to format config as toml")?;
         fs::write(path, data).context(format!("Failed to write config file: {path:?}"))?;
         Ok(())
