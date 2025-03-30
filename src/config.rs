@@ -165,6 +165,8 @@ impl Proxy {
 server {{
     server_name {};
 
+    listen {};
+
     location / {{
         proxy_pass http://{}:{};
 
@@ -179,7 +181,7 @@ server {{
     {}
 }}
 ",
-            listen_domain, self.dest_domain, self.dest_port, max_body_size
+            listen_domain, self.listen_port, self.dest_domain, self.dest_port, max_body_size
         )
     }
 }
