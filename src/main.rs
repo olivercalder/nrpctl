@@ -3,10 +3,11 @@ use clap::Parser;
 use std::env;
 use std::path::{Path, PathBuf};
 
-// TODO: mod certbot;
 mod cli;
+mod client;
 mod config;
-mod manager;
+// TODO: mod certbot;
+// TODO: mod nginx;
 
 use crate::cli::Cli;
 
@@ -22,5 +23,5 @@ fn main() -> Result<()> {
         PathBuf::from("/etc/nrpctl/config.toml")
     };
 
-    manager::run(args.command, path)
+    client::run(args.command, path)
 }

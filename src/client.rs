@@ -6,6 +6,9 @@ use std::fs;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
 
+/// Run the given command with the given config file.
+///
+/// The functions called may print to stdout or otherwise provide user feedback.
 pub fn run(cmd: Command, config_path: PathBuf) -> Result<()> {
     match cmd {
         Command::Init { sites_enabled_dir } => init(config_path, sites_enabled_dir),
