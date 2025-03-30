@@ -47,7 +47,9 @@ fn init(config_path: PathBuf, sites_enabled_dir: Option<PathBuf>) -> Result<()> 
             "Failed to initialize config: file already exists: {config_path:?}"
         ));
     }
-    config.write(&config_path)
+    config.write(&config_path)?;
+    println!("Successfully initialized nrpctl config at {config_path:?}");
+    Ok(())
 }
 
 fn status(config_path: PathBuf) -> Result<()> {

@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -13,6 +14,12 @@ pub struct Config {
 impl Config {
     /// Create a new nrpctl config.
     pub fn new(sites_enabled_dir: PathBuf) -> Config {
+        let sites_enabled_dir = match sites_enabled_dir.is_relative() {
+            true => env::current_dir() // only get cwd if we need to
+                .expect("Failed to get current working directory")
+                .join(sites_enabled_dir),
+            false => sites_enabled_dir,
+        };
         Config {
             sites_enabled_dir,
             proxies: BTreeMap::new(),
@@ -22,10 +29,10 @@ impl Config {
     /// Read and return an existing nrpctl config from the given path. Returns an error if the
     /// config does not exist or cannot be parsed.
     pub fn read(path: &PathBuf) -> Result<Config> {
-        let data = fs::read_to_string(path)
-            .with_context(|| format!("Failed to open config file {}", path.display()))?;
+        let data =
+            fs::read_to_string(path).context(format!("Failed to open config file {path:?}"))?;
         let config: Config = toml::from_str(data.as_str())
-            .with_context(|| format!("Failed to parse config file {}", path.display()))?;
+            .context(format!("Failed to parse config file {path:?}"))?;
         Ok(config)
     }
 
@@ -33,8 +40,7 @@ impl Config {
     /// serialized or the file cannot be written.
     pub fn write(&self, path: &PathBuf) -> Result<()> {
         let data = toml::to_string_pretty(self).context("Failed to format config as toml")?;
-        fs::write(path, data)
-            .with_context(|| format!("Failed to write config file {}", path.display()))?;
+        fs::write(path, data).context(format!("Failed to write config file {path:?}"))?;
         Ok(())
     }
 
