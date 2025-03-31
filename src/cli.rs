@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
+use crate::config::{ProxySettingKey, ProxySettingKeyOptional};
+
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
 pub struct Cli {
@@ -72,25 +74,34 @@ pub enum Command {
         /// The source domain for this reverse proxy
         listen_domain: String,
     },
-    // TODO:
-    // /// Get configuration values for a reverse proxy
-    // Get {
-    //     /// The source domain for this reverse proxy
-    //     listen_domain: String,
 
-    //     /// The configuration to get
-    //     key: Option<String>,
-    // },
+    /// Get a configuration value for a reverse proxy
+    Get {
+        /// The source domain for this reverse proxy
+        listen_domain: String,
 
-    // /// Set configuration values for a reverse proxy
-    // Set {
-    //     /// The source domain for this reverse proxy
-    //     listen_domain: String,
+        /// The configuration to get (gets all if unspecified)
+        key: Option<ProxySettingKey>,
+    },
 
-    //     /// The configuration key to set
-    //     key: String,
+    /// Set a configuration value for a reverse proxy
+    Set {
+        /// The source domain for this reverse proxy
+        listen_domain: String,
 
-    //     /// The value to set for the configuration key
-    //     value: String,
-    // },
+        /// The configuration key to set
+        key: ProxySettingKey,
+
+        /// The value to set for the configuration key
+        value: String,
+    },
+
+    /// Unset a configuration value for a reverse proxy
+    Unset {
+        /// The source domain for this reverse proxy
+        listen_domain: String,
+
+        /// The configuration key to unset
+        key: ProxySettingKeyOptional,
+    },
 }

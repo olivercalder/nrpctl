@@ -1,11 +1,12 @@
 use crate::cli::Command;
-use crate::config::Config;
+use crate::config::{Config, ProxySettingKey, ProxySettingKeyOptional};
 use crate::snap;
 use anyhow::{anyhow, Context, Result};
 use std::ffi::OsString;
 use std::fs;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
+use strum::IntoEnumIterator;
 
 /// Run the given command with the given config file.
 ///
@@ -30,6 +31,13 @@ pub fn run(cmd: Command, config_path: PathBuf) -> Result<()> {
         Command::Remove { listen_domain } => remove(&config_path, listen_domain),
         Command::Disable { listen_domain } => disable(&config_path, listen_domain),
         Command::Enable { listen_domain } => enable(&config_path, listen_domain),
+        Command::Get { listen_domain, key } => get(&config_path, listen_domain, key),
+        Command::Set {
+            listen_domain,
+            key,
+            value,
+        } => set(&config_path, listen_domain, key, value),
+        Command::Unset { listen_domain, key } => unset(&config_path, listen_domain, key),
     }
 }
 
@@ -112,11 +120,7 @@ fn remove(config_path: &Path, listen_domain: String) -> Result<()> {
 
 fn disable(config_path: &Path, listen_domain: String) -> Result<()> {
     let mut config = Config::read(config_path)?;
-    if config.disable(&listen_domain).is_none() {
-        return Err(anyhow!(
-            "Cannot disable proxy which does not exist: {listen_domain}",
-        ));
-    };
+    config.disable(&listen_domain)?;
 
     config.delete_nginx_site(&listen_domain)?;
     // TODO: restore written file if there's a later error
@@ -129,11 +133,7 @@ fn disable(config_path: &Path, listen_domain: String) -> Result<()> {
 
 fn enable(config_path: &Path, listen_domain: String) -> Result<()> {
     let mut config = Config::read(config_path)?;
-    if config.enable(&listen_domain).is_none() {
-        return Err(anyhow!(
-            "Cannot enable proxy which does not exist: {listen_domain}"
-        ));
-    };
+    config.enable(&listen_domain)?;
 
     config.write_nginx_site(&listen_domain)?;
     // TODO: delete written file if there's a later error
@@ -141,6 +141,57 @@ fn enable(config_path: &Path, listen_domain: String) -> Result<()> {
     // TODO: test the configuration properly using nginx -t
     backup_and_write_config(config_path, &config)?;
     println!("Successfully enabled {listen_domain}");
+    Ok(())
+}
+
+fn get(config_path: &Path, listen_domain: String, key: Option<ProxySettingKey>) -> Result<()> {
+    let config = Config::read(config_path)?;
+    if let Some(k) = key {
+        let setting = config.get_key(&listen_domain, k)?;
+        print!("{}", toml::to_string_pretty(&setting)?);
+        return Ok(());
+    }
+    // No key was specified, so display all settings
+    for k in ProxySettingKey::iter() {
+        let setting = config.get_key(&listen_domain, k)?;
+        print!("{}", toml::to_string_pretty(&setting)?);
+    }
+    Ok(())
+}
+
+fn set(
+    config_path: &Path,
+    listen_domain: String,
+    key: ProxySettingKey,
+    value: String,
+) -> Result<()> {
+    let mut config = Config::read(config_path)?;
+    let setting = config.set_key(&listen_domain, key, value)?;
+
+    config.write_nginx_site(&listen_domain)?;
+    // TODO: delete written file if there's a later error
+
+    // TODO: test the configuration properly using nginx -t
+    backup_and_write_config(config_path, &config)?;
+
+    print!("Successfully set: {}", toml::to_string_pretty(&setting)?);
+    Ok(())
+}
+
+fn unset(config_path: &Path, listen_domain: String, key: ProxySettingKeyOptional) -> Result<()> {
+    let mut config = Config::read(config_path)?;
+    let setting = config.unset_key(&listen_domain, key)?;
+
+    config.write_nginx_site(&listen_domain)?;
+    // TODO: delete written file if there's a later error
+
+    // TODO: test the configuration properly using nginx -t
+    backup_and_write_config(config_path, &config)?;
+
+    print!(
+        "Successfully unset {key}; Previous value: {}",
+        toml::to_string_pretty(&setting)?
+    );
     Ok(())
 }
 
