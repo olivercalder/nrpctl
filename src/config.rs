@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Context, Result};
-use serde::{Deserialize, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
 use std::fmt;
@@ -278,43 +278,28 @@ pub enum ProxySetting {
     Disabled(Option<bool>),
 }
 
-impl Serialize for ProxySetting {
-    // TOML doesn't like None values, so manually serialize them as "null".
-    //
-    // We only ever need to serialize ProxySetting when printing individual settings, never when
-    // directly inter-operating with toml, so it's okay for now that we're hand-rolling this
-    // non-standard serializer. Ideally, we'd use a serializer like json, but there's no need to
-    // import one just for this simple task. TODO: just import one.
-    // TODO: add thorough tests.
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
+impl fmt::Display for ProxySetting {
+    // Implement display which is compatible with toml for each proxy setting.
+    // For `None` variants, return a toml comment saying "# <setting> is unset".
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
             ProxySetting::ListenPort(port) => {
-                serializer.serialize_newtype_variant("ProxySetting", 0, "listen-port", &port)
+                write!(f, "\"listen-port\" = {}", port)
             }
             ProxySetting::DestDomain(ref s) => {
-                serializer.serialize_newtype_variant("ProxySetting", 0, "dest-domain", s)
+                write!(f, "\"dest-domain\" = \"{}\"", s)
             }
             ProxySetting::DestPort(port) => {
-                serializer.serialize_newtype_variant("ProxySetting", 0, "dest-port", &port)
+                write!(f, "\"dest-port\" = {}", port)
             }
-            ProxySetting::ClientMaxBodySize(ref maybe) => {
-                let s = match maybe {
-                    Some(size) => size,
-                    None => "null",
-                };
-                serializer.serialize_newtype_variant("ProxySetting", 0, "client-max-body-size", s)
-            }
-            ProxySetting::Disabled(ref maybe) => {
-                let s = match maybe {
-                    Some(true) => "true",
-                    Some(false) => "false",
-                    None => "null",
-                };
-                serializer.serialize_newtype_variant("ProxySetting", 0, "disabled", s)
-            }
+            ProxySetting::ClientMaxBodySize(ref maybe) => match maybe {
+                Some(size) => write!(f, "\"client-max-body-size\" = {}", size),
+                None => write!(f, "# \"client-max-body-size\" is unset"),
+            },
+            ProxySetting::Disabled(ref maybe) => match maybe {
+                Some(val) => write!(f, "\"disabled\" = {}", val),
+                None => write!(f, "# \"disabled\" is unset"),
+            },
         }
     }
 }
@@ -330,11 +315,6 @@ pub enum ProxySettingKeyOptional {
 }
 
 impl fmt::Display for ProxySettingKeyOptional {
-    // Need to implement Display so we can format the variant name without any value, which toml
-    // prohibits.
-    //
-    // We could just use another formatter like serde_json or serde_variant, but didn't want to
-    // pull in another dependency.
     // TODO: add thorough tests.
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let name = match self {

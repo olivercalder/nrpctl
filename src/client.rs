@@ -148,13 +148,13 @@ fn get(config_path: &Path, listen_domain: String, key: Option<ProxySettingKey>) 
     let config = Config::read(config_path)?;
     if let Some(k) = key {
         let setting = config.get_key(&listen_domain, k)?;
-        print!("{}", toml::to_string_pretty(&setting)?);
+        println!("{}", &setting);
         return Ok(());
     }
     // No key was specified, so display all settings
     for k in ProxySettingKey::iter() {
         let setting = config.get_key(&listen_domain, k)?;
-        print!("{}", toml::to_string_pretty(&setting)?);
+        println!("{}", &setting);
     }
     Ok(())
 }
@@ -174,7 +174,7 @@ fn set(
     // TODO: test the configuration properly using nginx -t
     backup_and_write_config(config_path, &config)?;
 
-    print!("Successfully set: {}", toml::to_string_pretty(&setting)?);
+    println!("Successfully set: {}", &setting);
     Ok(())
 }
 
@@ -188,10 +188,7 @@ fn unset(config_path: &Path, listen_domain: String, key: ProxySettingKeyOptional
     // TODO: test the configuration properly using nginx -t
     backup_and_write_config(config_path, &config)?;
 
-    print!(
-        "Successfully unset {key}; Previous value: {}",
-        toml::to_string_pretty(&setting)?
-    );
+    println!("Successfully unset {key}; Previous value: {}", &setting);
     Ok(())
 }
 
