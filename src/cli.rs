@@ -1,5 +1,4 @@
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
 
 use crate::config::{ProxySettingKey, ProxySettingKeyOptional};
 
@@ -7,8 +6,13 @@ use crate::config::{ProxySettingKey, ProxySettingKeyOptional};
 #[command(version, about, long_about = None)]
 pub struct Cli {
     /// Specify the path to the nrpctl configuration TOML file
-    #[arg(short, long, value_name = "FILE")]
-    pub config: Option<PathBuf>,
+    #[arg(
+        short,
+        long,
+        value_name = "FILE",
+        default_value_t = String::from("/etc/nrpctl/config.toml")
+    )]
+    pub config: String,
 
     #[command(subcommand)]
     pub command: Command,
@@ -16,11 +20,16 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Command {
-    /// Initialize a new nrpctl configuration file
+    /// Initialize a new nrpctl configuration file (args ignored if running in a snap)
     Init {
         /// The directory in which to write nginx configurations
-        #[arg(short, long, value_name = "DIR")]
-        sites_enabled_dir: Option<PathBuf>,
+        #[arg(
+            short,
+            long,
+            value_name = "DIR",
+            default_value_t = String::from("/etc/nginx/sites-enabled")
+        )]
+        sites_enabled_dir: String,
     },
 
     /// Display information about active reverse proxies

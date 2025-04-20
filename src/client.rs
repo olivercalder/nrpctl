@@ -11,9 +11,12 @@ use strum::IntoEnumIterator;
 /// Run the given command with the given config file.
 ///
 /// The functions called may print to stdout or otherwise provide user feedback.
-pub fn run(cmd: Command, config_path: PathBuf) -> Result<()> {
+pub fn run(cmd: Command, config_path: String) -> Result<()> {
+    // Ignore config path if we're running in a snap
+    let config_path = snap::config_path().unwrap_or(config_path.into());
+
     match cmd {
-        Command::Init { sites_enabled_dir } => init(config_path, sites_enabled_dir),
+        Command::Init { sites_enabled_dir } => init(config_path, sites_enabled_dir.into()),
         Command::Status => status(&config_path),
         Command::Render { listen_domain } => render(&config_path, listen_domain),
         Command::Add {
@@ -41,11 +44,10 @@ pub fn run(cmd: Command, config_path: PathBuf) -> Result<()> {
     }
 }
 
-fn init(config_path: PathBuf, sites_enabled_dir: Option<PathBuf>) -> Result<()> {
-    let nginx_dir = sites_enabled_dir.unwrap_or_else(|| {
-        snap::nginx_sites_enabled_dir().unwrap_or(PathBuf::from("/etc/nginx/sites-enabled"))
-    });
-    let config = Config::new(nginx_dir.clone());
+fn init(config_path: PathBuf, sites_enabled_dir: PathBuf) -> Result<()> {
+    // If we're in a snap, ignore the given sites_enabled_dir
+    let sites_enabled_dir = snap::nginx_sites_enabled_dir().unwrap_or(sites_enabled_dir);
+    let config = Config::new(sites_enabled_dir.clone());
     if fs::exists(&config_path)
         .with_context(|| format!("Failed to check if config file exists: {config_path:?}"))?
     {
@@ -53,8 +55,8 @@ fn init(config_path: PathBuf, sites_enabled_dir: Option<PathBuf>) -> Result<()> 
             "Failed to initialize config: file already exists: {config_path:?}"
         ));
     }
-    fs::create_dir_all(&nginx_dir).context(format!(
-        "Failed to create nginx sites enabled dir: {nginx_dir:?}",
+    fs::create_dir_all(&sites_enabled_dir).context(format!(
+        "Failed to create nginx sites enabled dir: {sites_enabled_dir:?}",
     ))?;
     config.write(&config_path)?;
     println!("Successfully initialized nrpctl config at {config_path:?}");
