@@ -47,10 +47,15 @@ impl Config {
         Ok(())
     }
 
+    /// Return the path for the nginx config file associated with the given domain.
+    fn site_config_path(&self, listen_domain: &str) -> PathBuf {
+        Path::new(&self.sites_enabled_dir).join(listen_domain)
+    }
+
     /// Render and write the nginx site configuration for the given domain to the sites enabled
     /// directory.
     pub fn write_nginx_site(&self, listen_domain: &str) -> Result<()> {
-        let path = Path::new(&self.sites_enabled_dir).join(listen_domain);
+        let path = self.site_config_path(listen_domain);
         let rendered = self.render(listen_domain)?;
         fs::write(&path, rendered).context(format!(
             "Failed to write nginx config file for {listen_domain}: {path:?}"
@@ -59,7 +64,7 @@ impl Config {
 
     /// Delete the nginx site configuration for the given domain from the sites enabled directory.
     pub fn delete_nginx_site(&self, listen_domain: &str) -> Result<()> {
-        let path = Path::new(&self.sites_enabled_dir).join(listen_domain);
+        let path = self.site_config_path(listen_domain);
         fs::remove_file(&path).context(format!(
             "Failed to delete nginx config file for {listen_domain}: {path:?}"
         ))
