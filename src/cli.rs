@@ -57,6 +57,10 @@ pub enum Command {
         /// The destination port to which to forward matching requests
         dest_port: u16,
 
+        /// Set the client max body size for incoming requests
+        #[arg(long)]
+        client_max_body_size: Option<String>,
+
         /// Enable gzip for responses from this domain
         #[arg(long)]
         gzip: bool,

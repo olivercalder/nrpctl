@@ -29,12 +29,18 @@ pub struct Proxy {
 
 impl Proxy {
     /// Create a new proxy with the given source and destination.
-    pub fn new(listen_port: u16, dest_domain: String, dest_port: u16, gzip: Option<bool>) -> Proxy {
+    pub fn new(
+        listen_port: u16,
+        dest_domain: String,
+        dest_port: u16,
+        client_max_body_size: Option<String>,
+        gzip: Option<bool>,
+    ) -> Proxy {
         Proxy {
             listen_port,
             dest_domain,
             dest_port,
-            client_max_body_size: None,
+            client_max_body_size,
             disabled: None,
             gzip,
         }

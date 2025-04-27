@@ -26,6 +26,7 @@ pub fn run(cmd: Command, config_path: String) -> Result<()> {
             dest_domain,
             listen_domain,
             dest_port,
+            client_max_body_size,
             gzip,
         } => add(
             &config_path,
@@ -33,6 +34,7 @@ pub fn run(cmd: Command, config_path: String) -> Result<()> {
             listen_port,
             dest_domain,
             dest_port,
+            client_max_body_size,
             gzip,
         ),
         Command::Remove { listen_domain } => remove(&config_path, listen_domain),
@@ -94,6 +96,7 @@ fn add(
     listen_port: u16,
     dest_domain: String,
     dest_port: u16,
+    client_max_body_size: Option<String>,
     gzip: bool,
 ) -> Result<()> {
     // Convert gzip bool to Option<bool>
@@ -105,6 +108,7 @@ fn add(
         listen_port,
         dest_domain,
         dest_port,
+        client_max_body_size,
         gzip,
     ) {
         return Err(anyhow!(
