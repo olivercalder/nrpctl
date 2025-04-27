@@ -1,12 +1,14 @@
-use crate::cli::Command;
-use crate::config::{Config, ProxySettingKey, ProxySettingKeyOptional};
-use crate::snap;
 use anyhow::{anyhow, Context, Result};
 use std::ffi::OsString;
 use std::fs;
 use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
 use strum::IntoEnumIterator;
+
+use crate::cli::Command;
+use crate::config::Config;
+use crate::proxy::{ProxySettingKey, ProxySettingKeyOptional};
+use crate::snap;
 
 /// Run the given command with the given config file.
 ///

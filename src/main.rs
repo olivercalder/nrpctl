@@ -4,6 +4,7 @@ use clap::Parser;
 mod cli;
 mod client;
 mod config;
+mod proxy;
 mod snap;
 // TODO: mod certbot;
 // TODO: mod nginx;

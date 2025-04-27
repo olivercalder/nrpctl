@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use crate::config::{ProxySettingKey, ProxySettingKeyOptional};
+use crate::proxy::{ProxySettingKey, ProxySettingKeyOptional};
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]

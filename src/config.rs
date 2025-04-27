@@ -2,9 +2,10 @@ use anyhow::{anyhow, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::env;
-use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+
+use crate::proxy::{Proxy, ProxySetting, ProxySettingKey, ProxySettingKeyOptional};
 
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -93,13 +94,7 @@ impl Config {
         dest_domain: String,
         dest_port: u16,
     ) -> bool {
-        let proxy = Proxy {
-            listen_port,
-            dest_domain,
-            dest_port,
-            client_max_body_size: None,
-            disabled: None,
-        };
+        let proxy = Proxy::new(listen_port, dest_domain, dest_port);
         self.proxies.insert(listen_domain, proxy).is_some()
     }
 
@@ -113,12 +108,11 @@ impl Config {
         let proxy = self.proxies.get_mut(listen_domain).ok_or(anyhow!(
             "Failed to find proxy for the given domain: {listen_domain}"
         ))?;
+        let prev = proxy.disable();
         // Most of the time, we use None to indicate "not disabled", so ensure that we return
         // Some(false) here if the proxy exists and was not disabled, to differentiate it from the
         // case where the proxy doesn't exist at all.
-        let current = matches!(proxy.disabled, Some(true));
-        proxy.disabled = Some(true);
-        Ok(current)
+        Ok(prev)
     }
 
     /// Enable the given domain, if it exists, and return true if it was previously disabled.
@@ -127,12 +121,11 @@ impl Config {
         let proxy = self.proxies.get_mut(listen_domain).ok_or(anyhow!(
             "Failed to find proxy for the given domain: {listen_domain}"
         ))?;
+        let prev = proxy.enable();
         // Most of the time, we use None to indicate "not disabled", so ensure that we return
         // Some(false) here if the proxy exists and was not disabled, to differentiate it from the
         // case where the proxy doesn't exist at all.
-        let current = matches!(proxy.disabled, Some(true));
-        proxy.disabled = None;
-        Ok(current)
+        Ok(prev)
     }
 
     /// Get the value of the given proxy setting for the given domain.
@@ -168,207 +161,5 @@ impl Config {
             "Failed to find proxy for the given domain: {listen_domain}"
         ))?;
         Ok(proxy.unset_key(key))
-    }
-}
-
-// Don't include listen_domain in the configuration, since that value is not configurable after the
-// proxy has been created.
-/// The configuration for a given reverse proxy
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-struct Proxy {
-    /// The port on which to listen for matching requests
-    listen_port: u16,
-
-    /// The domain to which to forward requests
-    dest_domain: String,
-
-    /// The port to which to forward requests
-    dest_port: u16,
-
-    /// The maximum allowed size of the client request body (default: "1m")
-    client_max_body_size: Option<String>,
-
-    /// The proxy is disabled if set to true
-    disabled: Option<bool>, // use None instead of Some(false) so false values omitted
-}
-
-impl Proxy {
-    /// Get the value of the given key.
-    pub fn get_key(&self, key: ProxySettingKey) -> ProxySetting {
-        match key {
-            ProxySettingKey::ListenPort => ProxySetting::ListenPort(self.listen_port),
-            ProxySettingKey::DestDomain => ProxySetting::DestDomain(self.dest_domain.clone()),
-            ProxySettingKey::DestPort => ProxySetting::DestPort(self.dest_port),
-            ProxySettingKey::ClientMaxBodySize => {
-                ProxySetting::ClientMaxBodySize(self.client_max_body_size.clone())
-            }
-            ProxySettingKey::Disabled => ProxySetting::Disabled(self.disabled),
-        }
-    }
-
-    /// Set the given key to the given value and return the new setting.
-    pub fn set_key(&mut self, key: ProxySettingKey, value: String) -> Result<ProxySetting> {
-        let setting = key.parse(value)?;
-        match &setting {
-            ProxySetting::ListenPort(port) => self.listen_port = *port,
-            ProxySetting::DestDomain(domain) => self.dest_domain = domain.clone(),
-            ProxySetting::DestPort(port) => self.dest_port = *port,
-            ProxySetting::ClientMaxBodySize(size) => self.client_max_body_size = size.clone(),
-            ProxySetting::Disabled(val) => self.disabled = *val,
-        };
-        Ok(setting)
-    }
-
-    /// Unset the given key and return its previous setting.
-    pub fn unset_key(&mut self, key: ProxySettingKeyOptional) -> ProxySetting {
-        match key {
-            ProxySettingKeyOptional::ClientMaxBodySize => {
-                let orig = self.client_max_body_size.clone();
-                // TODO: would be nice to move the string instead of cloning, since we're about to replace it
-                self.client_max_body_size = None;
-                ProxySetting::ClientMaxBodySize(orig)
-            }
-            ProxySettingKeyOptional::Disabled => {
-                let orig = self.disabled;
-                self.disabled = None;
-                ProxySetting::Disabled(orig)
-            }
-        }
-    }
-
-    pub fn render(&self, listen_domain: &str) -> String {
-        if self.disabled == Some(true) {
-            return format!("\n# {} disabled\n", listen_domain);
-        }
-
-        let max_body_size = match &self.client_max_body_size {
-            Some(s) => s,
-            None => "",
-        };
-
-        format!(
-            "
-server {{
-    server_name {};
-
-    listen {};
-
-    location / {{
-        proxy_pass http://{}:{};
-
-        proxy_set_header Host $http_host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_redirect off;
-    }}
-
-    fastcgi_request_buffering off;
-    {}
-}}
-",
-            listen_domain, self.listen_port, self.dest_domain, self.dest_port, max_body_size
-        )
-    }
-}
-
-/// ProxySetting defines the keys and corresponding values which can be retrieved or set for a
-/// given proxy.
-pub enum ProxySetting {
-    ListenPort(u16),
-    DestDomain(String),
-    DestPort(u16),
-    ClientMaxBodySize(Option<String>),
-    Disabled(Option<bool>),
-}
-
-impl fmt::Display for ProxySetting {
-    // Implement display which is compatible with toml for each proxy setting.
-    // For `None` variants, return a toml comment saying "# <setting> is unset".
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            ProxySetting::ListenPort(port) => {
-                write!(f, "\"listen-port\" = {}", port)
-            }
-            ProxySetting::DestDomain(ref s) => {
-                write!(f, "\"dest-domain\" = \"{}\"", s)
-            }
-            ProxySetting::DestPort(port) => {
-                write!(f, "\"dest-port\" = {}", port)
-            }
-            ProxySetting::ClientMaxBodySize(ref maybe) => match maybe {
-                Some(size) => write!(f, "\"client-max-body-size\" = {}", size),
-                None => write!(f, "# \"client-max-body-size\" is unset"),
-            },
-            ProxySetting::Disabled(ref maybe) => match maybe {
-                Some(val) => write!(f, "\"disabled\" = {}", val),
-                None => write!(f, "# \"disabled\" is unset"),
-            },
-        }
-    }
-}
-
-/// ProxySettingKeyOptional defines the keys which are optional and can be unset for a given proxy.
-#[derive(clap::ValueEnum, Clone, Copy, Serialize)]
-#[serde(tag = "key", rename_all = "kebab-case")]
-pub enum ProxySettingKeyOptional {
-    /// The maximum acceptable request body size (e.g. "512m")
-    ClientMaxBodySize,
-    /// Whether the reverse proxy is disabled
-    Disabled,
-}
-
-impl fmt::Display for ProxySettingKeyOptional {
-    // TODO: add thorough tests.
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let name = match self {
-            ProxySettingKeyOptional::ClientMaxBodySize => "client-max-body-size",
-            ProxySettingKeyOptional::Disabled => "disabled",
-        };
-        write!(f, "{}", name)
-    }
-}
-
-/// ProxySettingKey defines the keys which can be retrieved or set for a given proxy.
-#[derive(clap::ValueEnum, strum::EnumIter, Clone, Copy, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum ProxySettingKey {
-    /// The port on which to listen for requests
-    ListenPort,
-    /// The destination domain to which to forward requests
-    DestDomain,
-    /// The destination port to which to forward requests
-    DestPort,
-    /// The maximum acceptable request body size (e.g. "512m")
-    ClientMaxBodySize,
-    /// Whether the reverse proxy is disabled
-    Disabled,
-}
-
-impl ProxySettingKey {
-    pub fn parse(&self, value: String) -> Result<ProxySetting> {
-        Ok(match self {
-            ProxySettingKey::ListenPort => {
-                let port: u16 = value
-                    .parse()
-                    .context("Failed to parse value as listen port: {value}")?;
-                ProxySetting::ListenPort(port)
-            }
-            ProxySettingKey::DestDomain => ProxySetting::DestDomain(value), // TODO: validate in some way
-            ProxySettingKey::DestPort => {
-                let port: u16 = value
-                    .parse()
-                    .context("Failed to parse value as destination port: {value}")?;
-                ProxySetting::DestPort(port)
-            }
-            ProxySettingKey::ClientMaxBodySize => ProxySetting::ClientMaxBodySize(Some(value)), // TODO: validate
-            ProxySettingKey::Disabled => {
-                let disabled: bool = value
-                    .parse()
-                    .context("Failed to parse value as boolean: {value}")?;
-                ProxySetting::Disabled(Some(disabled))
-            }
-        })
     }
 }
