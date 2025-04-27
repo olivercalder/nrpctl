@@ -22,17 +22,21 @@ pub struct Proxy {
 
     /// The proxy is disabled if set to true
     disabled: Option<bool>, // use None instead of Some(false) so false values omitted
+
+    /// If true, turns gzip on in the proxy configuration
+    gzip: Option<bool>, // use None instead of Some(false) so false values omitted
 }
 
 impl Proxy {
     /// Create a new proxy with the given source and destination.
-    pub fn new(listen_port: u16, dest_domain: String, dest_port: u16) -> Proxy {
+    pub fn new(listen_port: u16, dest_domain: String, dest_port: u16, gzip: Option<bool>) -> Proxy {
         Proxy {
             listen_port,
             dest_domain,
             dest_port,
             client_max_body_size: None,
             disabled: None,
+            gzip,
         }
     }
 
@@ -60,6 +64,7 @@ impl Proxy {
                 ProxySetting::ClientMaxBodySize(self.client_max_body_size.clone())
             }
             ProxySettingKey::Disabled => ProxySetting::Disabled(self.disabled),
+            ProxySettingKey::Gzip => ProxySetting::Gzip(self.gzip),
         }
     }
 
@@ -72,6 +77,7 @@ impl Proxy {
             ProxySetting::DestPort(port) => self.dest_port = *port,
             ProxySetting::ClientMaxBodySize(size) => self.client_max_body_size = size.clone(),
             ProxySetting::Disabled(val) => self.disabled = *val,
+            ProxySetting::Gzip(val) => self.gzip = *val,
         };
         Ok(setting)
     }
@@ -90,6 +96,11 @@ impl Proxy {
                 self.disabled = None;
                 ProxySetting::Disabled(orig)
             }
+            ProxySettingKeyOptional::Gzip => {
+                let orig = self.gzip;
+                self.gzip = None;
+                ProxySetting::Gzip(orig)
+            }
         }
     }
 
@@ -98,20 +109,54 @@ impl Proxy {
             return format!("\n# {} disabled\n", listen_domain);
         }
 
+        let listen_port = self.listen_port;
+
+        let gzip = if self.gzip == Some(true) {
+            "
+    gzip on;
+    gzip_types
+      application/javascript
+      application/x-javascript
+      application/json
+      application/xml
+      application/xml+rss
+      application/rss+xml
+      image/svg+xml
+      image/xml+svg
+      image/x-icon
+      application/vnd.ms-fontobject
+      application/font-sfnt
+      text/css
+      text/javascript
+      text/plain
+      text/xml;
+    gzip_min_length 256;
+    gzip_comp_level 5;
+    gzip_http_version 1.1;
+    gzip_proxy any;
+    gzip_vary on;
+"
+        } else {
+            ""
+        };
+
+        let dest_domain = &self.dest_domain;
+        let dest_port = self.dest_port;
+
         let max_body_size = match &self.client_max_body_size {
             Some(s) => s,
             None => "",
         };
 
         format!(
-            "
+            "# Managed by nrpctl -- any changes will be overwritten, so do not manually edit
 server {{
-    server_name {};
+    server_name {listen_domain};
 
-    listen {};
-
+    listen {listen_port};
+{gzip}
     location / {{
-        proxy_pass http://{}:{};
+        proxy_pass http://{dest_domain}:{dest_port};
 
         proxy_set_header Host $http_host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -121,10 +166,9 @@ server {{
     }}
 
     fastcgi_request_buffering off;
-    {}
+    {max_body_size}
 }}
-",
-            listen_domain, self.listen_port, self.dest_domain, self.dest_port, max_body_size
+"
         )
     }
 }
@@ -137,6 +181,7 @@ pub enum ProxySetting {
     DestPort(u16),
     ClientMaxBodySize(Option<String>),
     Disabled(Option<bool>),
+    Gzip(Option<bool>),
 }
 
 impl fmt::Display for ProxySetting {
@@ -161,6 +206,10 @@ impl fmt::Display for ProxySetting {
                 Some(val) => write!(f, "\"disabled\" = {}", val),
                 None => write!(f, "# \"disabled\" is unset"),
             },
+            ProxySetting::Gzip(ref maybe) => match maybe {
+                Some(val) => write!(f, "\"gzip\" = {}", val),
+                None => write!(f, "# \"gzip\" is unset"),
+            },
         }
     }
 }
@@ -173,6 +222,8 @@ pub enum ProxySettingKeyOptional {
     ClientMaxBodySize,
     /// Whether the reverse proxy is disabled
     Disabled,
+    /// Whether to gzip response content
+    Gzip,
 }
 
 impl fmt::Display for ProxySettingKeyOptional {
@@ -181,6 +232,7 @@ impl fmt::Display for ProxySettingKeyOptional {
         let name = match self {
             ProxySettingKeyOptional::ClientMaxBodySize => "client-max-body-size",
             ProxySettingKeyOptional::Disabled => "disabled",
+            ProxySettingKeyOptional::Gzip => "gzip",
         };
         write!(f, "{}", name)
     }
@@ -200,6 +252,8 @@ pub enum ProxySettingKey {
     ClientMaxBodySize,
     /// Whether the reverse proxy is disabled
     Disabled,
+    /// Whether to gzip response content
+    Gzip,
 }
 
 impl ProxySettingKey {
@@ -224,6 +278,12 @@ impl ProxySettingKey {
                     .parse()
                     .context("Failed to parse value as boolean: {value}")?;
                 ProxySetting::Disabled(Some(disabled))
+            }
+            ProxySettingKey::Gzip => {
+                let gzip: bool = value
+                    .parse()
+                    .context("Failed to parse value as boolean: {value}")?;
+                ProxySetting::Gzip(Some(gzip))
             }
         })
     }

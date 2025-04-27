@@ -93,8 +93,9 @@ impl Config {
         listen_port: u16,
         dest_domain: String,
         dest_port: u16,
+        gzip: Option<bool>,
     ) -> bool {
-        let proxy = Proxy::new(listen_port, dest_domain, dest_port);
+        let proxy = Proxy::new(listen_port, dest_domain, dest_port, gzip);
         self.proxies.insert(listen_domain, proxy).is_some()
     }
 

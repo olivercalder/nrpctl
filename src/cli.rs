@@ -43,6 +43,9 @@ pub enum Command {
 
     /// Add a new reverse proxy
     Add {
+        /// The source domain for which to listen (e.g. `cloud.mydomain.com`)
+        listen_domain: String,
+
         /// The port on which to listen for requests
         #[arg(short, long, default_value_t = 80)]
         listen_port: u16,
@@ -51,11 +54,12 @@ pub enum Command {
         #[arg(long, default_value_t = String::from("localhost"))]
         dest_domain: String,
 
-        /// The source domain for which to listen (e.g. `cloud.mydomain.com`)
-        listen_domain: String,
-
         /// The destination port to which to forward matching requests
         dest_port: u16,
+
+        /// Enable gzip for responses from this domain
+        #[arg(long)]
+        gzip: bool,
         // TODO:
         // /// Set up SSL encryption (HTTPS) using certbot (requires listen port to be 80)
         // #[arg(short, long)]

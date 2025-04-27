@@ -26,12 +26,14 @@ pub fn run(cmd: Command, config_path: String) -> Result<()> {
             dest_domain,
             listen_domain,
             dest_port,
+            gzip,
         } => add(
             &config_path,
             listen_domain,
             listen_port,
             dest_domain,
             dest_port,
+            gzip,
         ),
         Command::Remove { listen_domain } => remove(&config_path, listen_domain),
         Command::Disable { listen_domain } => disable(&config_path, listen_domain),
@@ -92,9 +94,19 @@ fn add(
     listen_port: u16,
     dest_domain: String,
     dest_port: u16,
+    gzip: bool,
 ) -> Result<()> {
+    // Convert gzip bool to Option<bool>
+    let gzip = if gzip { Some(true) } else { None };
+
     let mut config = Config::read(config_path)?;
-    if config.add(listen_domain.clone(), listen_port, dest_domain, dest_port) {
+    if config.add(
+        listen_domain.clone(),
+        listen_port,
+        dest_domain,
+        dest_port,
+        gzip,
+    ) {
         return Err(anyhow!(
             "Proxy already exists with the given domain: {listen_domain}",
         ));
