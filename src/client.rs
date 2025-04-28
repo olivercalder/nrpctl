@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Context, Error, Result};
 use std::ffi::OsString;
 use std::fs;
 use std::io::{stdout, Write};
@@ -61,9 +61,9 @@ fn init(config_path: PathBuf, sites_enabled_dir: PathBuf) -> Result<()> {
             "Failed to initialize config: file already exists: {config_path:?}"
         ));
     }
-    fs::create_dir_all(&sites_enabled_dir).context(format!(
-        "Failed to create nginx sites enabled dir: {sites_enabled_dir:?}",
-    ))?;
+    fs::create_dir_all(&sites_enabled_dir).with_context(|| {
+        format!("Failed to create nginx sites enabled dir: {sites_enabled_dir:?}")
+    })?;
     config.write(&config_path)?;
     println!("Successfully initialized nrpctl config at {config_path:?}");
     Ok(())
@@ -88,6 +88,18 @@ fn render(config_path: &Path, listen_domain: Option<String>) -> Result<()> {
         stdout.write_all(rendered.as_bytes())?;
     }
     Ok(())
+}
+
+/// Call the given restore function and if it errors, chain the original error to the restore
+/// error. Otherwise, print the result of the restore and return the original error.
+fn do_restore(orig_err: Error, restore: impl FnOnce() -> Result<String>) -> Error {
+    match restore() {
+        Ok(result) => {
+            println!("{}", result);
+            orig_err
+        }
+        Err(restore_err) => restore_err.context(orig_err),
+    }
 }
 
 fn add(
@@ -116,11 +128,11 @@ fn add(
         ));
     }
 
-    config.write_nginx_site(&listen_domain)?;
-    // TODO: delete written file if there's a later error
+    let restore = config.write_nginx_site(&listen_domain)?;
 
     // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config)?;
+    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
+
     println!("Successfully added {listen_domain}");
     Ok(())
 }
@@ -129,11 +141,11 @@ fn remove(config_path: &Path, listen_domain: String) -> Result<()> {
     let mut config = Config::read(config_path)?;
     config.remove(&listen_domain); // treat remove as idempotent, don't error
 
-    config.delete_nginx_site(&listen_domain)?;
-    // TODO: restore written file if there's a later error
+    let restore = config.delete_nginx_site(&listen_domain)?;
 
     // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config)?;
+    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
+
     println!("Successfully removed {listen_domain}");
     Ok(())
 }
@@ -142,11 +154,11 @@ fn disable(config_path: &Path, listen_domain: String) -> Result<()> {
     let mut config = Config::read(config_path)?;
     config.disable(&listen_domain)?;
 
-    config.delete_nginx_site(&listen_domain)?;
-    // TODO: restore written file if there's a later error
+    let restore = config.delete_nginx_site(&listen_domain)?;
 
     // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config)?;
+    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
+
     println!("Successfully disabled {listen_domain}");
     Ok(())
 }
@@ -155,11 +167,11 @@ fn enable(config_path: &Path, listen_domain: String) -> Result<()> {
     let mut config = Config::read(config_path)?;
     config.enable(&listen_domain)?;
 
-    config.write_nginx_site(&listen_domain)?;
-    // TODO: delete written file if there's a later error
+    let restore = config.write_nginx_site(&listen_domain)?;
 
     // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config)?;
+    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
+
     println!("Successfully enabled {listen_domain}");
     Ok(())
 }
@@ -188,11 +200,10 @@ fn set(
     let mut config = Config::read(config_path)?;
     let setting = config.set_key(&listen_domain, key, value)?;
 
-    config.write_nginx_site(&listen_domain)?;
-    // TODO: delete written file if there's a later error
+    let restore = config.write_nginx_site(&listen_domain)?;
 
     // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config)?;
+    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
 
     println!("Successfully set: {}", &setting);
     Ok(())
@@ -202,11 +213,10 @@ fn unset(config_path: &Path, listen_domain: String, key: ProxySettingKeyOptional
     let mut config = Config::read(config_path)?;
     let setting = config.unset_key(&listen_domain, key)?;
 
-    config.write_nginx_site(&listen_domain)?;
-    // TODO: delete written file if there's a later error
+    let restore = config.write_nginx_site(&listen_domain)?;
 
     // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config)?;
+    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
 
     println!("Successfully unset {key}; Previous value: {}", &setting);
     Ok(())

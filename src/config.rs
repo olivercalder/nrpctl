@@ -54,21 +54,84 @@ impl Config {
     }
 
     /// Render and write the nginx site configuration for the given domain to the sites enabled
-    /// directory.
-    pub fn write_nginx_site(&self, listen_domain: &str) -> Result<()> {
+    /// directory. Returns a closure which will delete the new configuration and, if it existed,
+    /// restore the previous configuration.
+    pub fn write_nginx_site(
+        &self,
+        listen_domain: &str,
+    ) -> Result<Box<dyn FnOnce() -> Result<String>>> {
         let path = self.site_config_path(listen_domain);
         let rendered = self.render(listen_domain)?;
-        fs::write(&path, rendered).context(format!(
-            "Failed to write nginx config file for {listen_domain}: {path:?}"
-        ))
+
+        let cloned_domain = String::from(listen_domain);
+        let cloned_path = path.clone();
+        let restore: Box<dyn FnOnce() -> Result<String>> = match fs::read(&path) {
+            Ok(contents) => Box::new(move || {
+                fs::write(&cloned_path, contents).with_context(|| {
+                    format!(
+                        "Failed to restore prior nginx config file for {}: {:?}",
+                        cloned_domain, cloned_path
+                    )
+                })?;
+                Ok(format!(
+                    "Restored prior nginx config file for {}: {:?}",
+                    cloned_domain, cloned_path
+                ))
+            }),
+            Err(_) => Box::new(move || {
+                fs::remove_file(&cloned_path).with_context(|| {
+                    format!(
+                        "Failed to clean up nginx config file for {} after error caused rollback: {:?}", cloned_domain, cloned_path
+                    )
+                })?;
+                Ok(format!(
+                    "Cleaned up nginx config file for {} after error caused rollback: {:?}",
+                    cloned_domain, cloned_path
+                ))
+            }),
+        };
+
+        fs::write(&path, rendered).with_context(|| {
+            format!(
+                "Failed to write nginx config file for {}: {:?}",
+                listen_domain, path
+            )
+        })?;
+
+        Ok(restore)
     }
 
     /// Delete the nginx site configuration for the given domain from the sites enabled directory.
-    pub fn delete_nginx_site(&self, listen_domain: &str) -> Result<()> {
+    /// Returns a closure which will restore the previous configuration, if it existed.
+    pub fn delete_nginx_site(
+        &self,
+        listen_domain: &str,
+    ) -> Result<Box<dyn FnOnce() -> Result<String>>> {
         let path = self.site_config_path(listen_domain);
+
+        let cloned_domain = String::from(listen_domain);
+        let cloned_path = path.clone();
+        let restore: Box<dyn FnOnce() -> Result<String>> = match fs::read(&path) {
+            Ok(contents) => Box::new(move || {
+                fs::write(&cloned_path, contents).with_context(|| {
+                    format!(
+                        "Failed to restore prior nginx config file for {}: {:?}",
+                        cloned_domain, cloned_path
+                    )
+                })?;
+                Ok(format!(
+                    "Restored prior nginx config file for {}: {:?}",
+                    cloned_domain, cloned_path
+                ))
+            }),
+            Err(_) => Box::new(|| Ok(String::new())), // this will cause unfortunate empty line
+        };
+
         fs::remove_file(&path).context(format!(
             "Failed to delete nginx config file for {listen_domain}: {path:?}"
-        ))
+        ))?;
+
+        Ok(restore)
     }
 
     /// Render the nginx configuration for the given domain.
