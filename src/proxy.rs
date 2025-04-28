@@ -25,6 +25,9 @@ pub struct Proxy {
 
     /// If true, turns gzip on in the proxy configuration
     gzip: Option<bool>, // use None instead of Some(false) so false values omitted
+
+    /// If true, listen on IPv6 as well as IPv4
+    ipv6: Option<bool>, // use None instead of Some(false) so false values omitted
 }
 
 impl Proxy {
@@ -35,6 +38,7 @@ impl Proxy {
         dest_port: u16,
         client_max_body_size: Option<String>,
         gzip: Option<bool>,
+        ipv6: Option<bool>,
     ) -> Proxy {
         Proxy {
             listen_port,
@@ -43,6 +47,7 @@ impl Proxy {
             client_max_body_size,
             disabled: None,
             gzip,
+            ipv6,
         }
     }
 
@@ -71,6 +76,7 @@ impl Proxy {
             }
             ProxySettingKey::Disabled => ProxySetting::Disabled(self.disabled),
             ProxySettingKey::Gzip => ProxySetting::Gzip(self.gzip),
+            ProxySettingKey::Ipv6 => ProxySetting::Ipv6(self.ipv6),
         }
     }
 
@@ -84,6 +90,7 @@ impl Proxy {
             ProxySetting::ClientMaxBodySize(size) => self.client_max_body_size = size.clone(),
             ProxySetting::Disabled(val) => self.disabled = *val,
             ProxySetting::Gzip(val) => self.gzip = *val,
+            ProxySetting::Ipv6(val) => self.ipv6 = *val,
         };
         Ok(setting)
     }
@@ -107,6 +114,11 @@ impl Proxy {
                 self.gzip = None;
                 ProxySetting::Gzip(orig)
             }
+            ProxySettingKeyOptional::Ipv6 => {
+                let orig = self.ipv6;
+                self.ipv6 = None;
+                ProxySetting::Ipv6(orig)
+            }
         }
     }
 
@@ -116,6 +128,11 @@ impl Proxy {
         }
 
         let listen_port = self.listen_port;
+        let listen_ipv6 = if self.ipv6 == Some(true) {
+            format!("    listen [::]:{listen_port};")
+        } else {
+            String::new()
+        };
 
         let gzip = if self.gzip == Some(true) {
             "
@@ -160,6 +177,7 @@ server {{
     server_name {listen_domain};
 
     listen {listen_port};
+{listen_ipv6}
 {gzip}
     location / {{
         proxy_pass http://{dest_domain}:{dest_port};
@@ -188,6 +206,7 @@ pub enum ProxySetting {
     ClientMaxBodySize(Option<String>),
     Disabled(Option<bool>),
     Gzip(Option<bool>),
+    Ipv6(Option<bool>),
 }
 
 impl fmt::Display for ProxySetting {
@@ -216,6 +235,10 @@ impl fmt::Display for ProxySetting {
                 Some(val) => write!(f, "\"gzip\" = {}", val),
                 None => write!(f, "# \"gzip\" is unset"),
             },
+            ProxySetting::Ipv6(ref maybe) => match maybe {
+                Some(val) => write!(f, "\"ipv6\" = {}", val),
+                None => write!(f, "# \"ipv6\" is unset"),
+            },
         }
     }
 }
@@ -230,6 +253,8 @@ pub enum ProxySettingKeyOptional {
     Disabled,
     /// Whether to gzip response content
     Gzip,
+    /// Whether to listen IPv6 as well as IPv4
+    Ipv6,
 }
 
 impl fmt::Display for ProxySettingKeyOptional {
@@ -239,6 +264,7 @@ impl fmt::Display for ProxySettingKeyOptional {
             ProxySettingKeyOptional::ClientMaxBodySize => "client-max-body-size",
             ProxySettingKeyOptional::Disabled => "disabled",
             ProxySettingKeyOptional::Gzip => "gzip",
+            ProxySettingKeyOptional::Ipv6 => "ipv6",
         };
         write!(f, "{}", name)
     }
@@ -260,6 +286,8 @@ pub enum ProxySettingKey {
     Disabled,
     /// Whether to gzip response content
     Gzip,
+    /// Whether to listen on IPv6 as well as IPv4
+    Ipv6,
 }
 
 impl ProxySettingKey {
@@ -290,6 +318,12 @@ impl ProxySettingKey {
                     .parse()
                     .context("Failed to parse value as boolean: {value}")?;
                 ProxySetting::Gzip(Some(gzip))
+            }
+            ProxySettingKey::Ipv6 => {
+                let ipv6: bool = value
+                    .parse()
+                    .context("Failed to parse value as boolean: {value}")?;
+                ProxySetting::Ipv6(Some(ipv6))
             }
         })
     }

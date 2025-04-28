@@ -64,6 +64,10 @@ pub enum Command {
         /// Enable gzip for responses from this domain
         #[arg(long)]
         gzip: bool,
+
+        /// Listen on IPv6 as well as IPv4
+        #[arg(long)]
+        ipv6: bool,
         // TODO:
         // /// Set up SSL encryption (HTTPS) using certbot (requires listen port to be 80)
         // #[arg(short, long)]

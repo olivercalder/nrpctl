@@ -28,6 +28,7 @@ pub fn run(cmd: Command, config_path: String) -> Result<()> {
             dest_port,
             client_max_body_size,
             gzip,
+            ipv6,
         } => add(
             &config_path,
             listen_domain,
@@ -36,6 +37,7 @@ pub fn run(cmd: Command, config_path: String) -> Result<()> {
             dest_port,
             client_max_body_size,
             gzip,
+            ipv6,
         ),
         Command::Remove { listen_domain } => remove(&config_path, listen_domain),
         Command::Disable { listen_domain } => disable(&config_path, listen_domain),
@@ -110,9 +112,11 @@ fn add(
     dest_port: u16,
     client_max_body_size: Option<String>,
     gzip: bool,
+    ipv6: bool,
 ) -> Result<()> {
     // Convert gzip bool to Option<bool>
     let gzip = if gzip { Some(true) } else { None };
+    let ipv6 = if ipv6 { Some(true) } else { None };
 
     let mut config = Config::read(config_path)?;
     if config.add(
@@ -122,6 +126,7 @@ fn add(
         dest_port,
         client_max_body_size,
         gzip,
+        ipv6,
     ) {
         return Err(anyhow!(
             "Proxy already exists with the given domain: {listen_domain}",

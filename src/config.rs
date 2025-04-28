@@ -158,6 +158,7 @@ impl Config {
         dest_port: u16,
         client_max_body_size: Option<String>,
         gzip: Option<bool>,
+        ipv6: Option<bool>,
     ) -> bool {
         let proxy = Proxy::new(
             listen_port,
@@ -165,6 +166,7 @@ impl Config {
             dest_port,
             client_max_body_size,
             gzip,
+            ipv6,
         );
         self.proxies.insert(listen_domain, proxy).is_some()
     }
