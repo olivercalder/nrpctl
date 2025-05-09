@@ -4,11 +4,11 @@ use clap::Parser;
 mod cli;
 mod client;
 mod config;
+mod nginx;
 mod proxy;
 mod snap;
 mod transaction;
 // TODO: mod certbot;
-// TODO: mod nginx;
 
 use crate::cli::Cli;
 

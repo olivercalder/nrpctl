@@ -7,6 +7,7 @@ use strum::IntoEnumIterator;
 
 use crate::cli::Command;
 use crate::config::Config;
+use crate::nginx;
 use crate::proxy::{ProxySettingKey, ProxySettingKeyOptional};
 use crate::snap;
 use crate::transaction::Transaction;
@@ -126,6 +127,8 @@ fn add(
 
     transaction.do_or_rollback(|| config.write_nginx_site(&listen_domain))?;
 
+    transaction.do_or_rollback(nginx::reload)?;
+
     transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
     println!("Successfully added {listen_domain}");
@@ -139,6 +142,8 @@ fn remove(config_path: &Path, listen_domain: String) -> Result<()> {
     let mut transaction = Transaction::new();
 
     transaction.do_or_rollback(|| config.delete_nginx_site(&listen_domain))?;
+
+    transaction.do_or_rollback(nginx::reload)?;
 
     transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
@@ -154,6 +159,8 @@ fn disable(config_path: &Path, listen_domain: String) -> Result<()> {
 
     transaction.do_or_rollback(|| config.delete_nginx_site(&listen_domain))?;
 
+    transaction.do_or_rollback(nginx::reload)?;
+
     transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
     println!("Successfully disabled {listen_domain}");
@@ -167,6 +174,8 @@ fn enable(config_path: &Path, listen_domain: String) -> Result<()> {
     let mut transaction = Transaction::new();
 
     transaction.do_or_rollback(|| config.write_nginx_site(&listen_domain))?;
+
+    transaction.do_or_rollback(nginx::reload)?;
 
     transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
@@ -202,6 +211,8 @@ fn set(
 
     transaction.do_or_rollback(|| config.write_nginx_site(&listen_domain))?;
 
+    transaction.do_or_rollback(nginx::reload)?;
+
     transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
     println!("Successfully set: {}", &setting);
@@ -215,6 +226,8 @@ fn unset(config_path: &Path, listen_domain: String, key: ProxySettingKeyOptional
     let mut transaction = Transaction::new();
 
     transaction.do_or_rollback(|| config.write_nginx_site(&listen_domain))?;
+
+    transaction.do_or_rollback(nginx::reload)?;
 
     transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
