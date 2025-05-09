@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Error, Result};
+use anyhow::{anyhow, Context, Result};
 use std::ffi::OsString;
 use std::fs;
 use std::io::{stdout, Write};
@@ -9,6 +9,7 @@ use crate::cli::Command;
 use crate::config::Config;
 use crate::proxy::{ProxySettingKey, ProxySettingKeyOptional};
 use crate::snap;
+use crate::transaction::Transaction;
 
 /// Run the given command with the given config file.
 ///
@@ -92,18 +93,6 @@ fn render(config_path: &Path, listen_domain: Option<String>) -> Result<()> {
     Ok(())
 }
 
-/// Call the given restore function and if it errors, chain the original error to the restore
-/// error. Otherwise, print the result of the restore and return the original error.
-fn do_restore(orig_err: Error, restore: impl FnOnce() -> Result<String>) -> Error {
-    match restore() {
-        Ok(result) => {
-            println!("{}", result);
-            orig_err
-        }
-        Err(restore_err) => restore_err.context(orig_err),
-    }
-}
-
 fn add(
     config_path: &Path,
     listen_domain: String,
@@ -133,10 +122,11 @@ fn add(
         ));
     }
 
-    let restore = config.write_nginx_site(&listen_domain)?;
+    let mut transaction = Transaction::new();
 
-    // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
+    transaction.do_or_rollback(|| config.write_nginx_site(&listen_domain))?;
+
+    transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
     println!("Successfully added {listen_domain}");
     Ok(())
@@ -146,10 +136,11 @@ fn remove(config_path: &Path, listen_domain: String) -> Result<()> {
     let mut config = Config::read(config_path)?;
     config.remove(&listen_domain); // treat remove as idempotent, don't error
 
-    let restore = config.delete_nginx_site(&listen_domain)?;
+    let mut transaction = Transaction::new();
 
-    // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
+    transaction.do_or_rollback(|| config.delete_nginx_site(&listen_domain))?;
+
+    transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
     println!("Successfully removed {listen_domain}");
     Ok(())
@@ -159,10 +150,11 @@ fn disable(config_path: &Path, listen_domain: String) -> Result<()> {
     let mut config = Config::read(config_path)?;
     config.disable(&listen_domain)?;
 
-    let restore = config.delete_nginx_site(&listen_domain)?;
+    let mut transaction = Transaction::new();
 
-    // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
+    transaction.do_or_rollback(|| config.delete_nginx_site(&listen_domain))?;
+
+    transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
     println!("Successfully disabled {listen_domain}");
     Ok(())
@@ -172,10 +164,11 @@ fn enable(config_path: &Path, listen_domain: String) -> Result<()> {
     let mut config = Config::read(config_path)?;
     config.enable(&listen_domain)?;
 
-    let restore = config.write_nginx_site(&listen_domain)?;
+    let mut transaction = Transaction::new();
 
-    // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
+    transaction.do_or_rollback(|| config.write_nginx_site(&listen_domain))?;
+
+    transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
     println!("Successfully enabled {listen_domain}");
     Ok(())
@@ -205,10 +198,11 @@ fn set(
     let mut config = Config::read(config_path)?;
     let setting = config.set_key(&listen_domain, key, value)?;
 
-    let restore = config.write_nginx_site(&listen_domain)?;
+    let mut transaction = Transaction::new();
 
-    // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
+    transaction.do_or_rollback(|| config.write_nginx_site(&listen_domain))?;
+
+    transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
     println!("Successfully set: {}", &setting);
     Ok(())
@@ -218,19 +212,46 @@ fn unset(config_path: &Path, listen_domain: String, key: ProxySettingKeyOptional
     let mut config = Config::read(config_path)?;
     let setting = config.unset_key(&listen_domain, key)?;
 
-    let restore = config.write_nginx_site(&listen_domain)?;
+    let mut transaction = Transaction::new();
 
-    // TODO: test the configuration properly using nginx -t
-    backup_and_write_config(config_path, &config).map_err(|err| do_restore(err, restore))?;
+    transaction.do_or_rollback(|| config.write_nginx_site(&listen_domain))?;
+
+    transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
     println!("Successfully unset {key}; Previous value: {}", &setting);
     Ok(())
 }
 
-fn backup_and_write_config(config_path: &Path, config: &Config) -> Result<()> {
+fn backup_and_write_config(
+    config_path: &Path,
+    config: &Config,
+) -> Result<Box<dyn FnOnce() -> Result<String>>> {
     let backup_path = config_backup_path(config_path);
     fs::rename(config_path, backup_path)?;
-    config.write(config_path)
+    let cloned_path = config_path.to_path_buf();
+    let restore: Box<dyn FnOnce() -> Result<String>> = match fs::read(config_path) {
+        Ok(contents) => Box::new(move || {
+            fs::write(&cloned_path, contents).with_context(|| {
+                format!("Failed to restore prior nrpctl configuration file at {cloned_path:?}",)
+            })?;
+            Ok(format!(
+                "Restored prior nrpctl configuration file at {cloned_path:?}",
+            ))
+        }),
+        Err(_) => Box::new(move || {
+            fs::remove_file(&cloned_path).with_context(|| {
+                format!(
+                    "Failed to clean up nrpctl configuration file after error caused rollback: {cloned_path:?}"
+                )
+            })?;
+            Ok(format!(
+                "Cleaned up nrpctl configuration file after error caused rollback: {cloned_path:?}"
+            ))
+        }),
+    };
+    config.write(config_path)?;
+
+    Ok(restore)
 }
 
 fn config_backup_path(config_path: &Path) -> PathBuf {

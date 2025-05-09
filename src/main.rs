@@ -6,6 +6,7 @@ mod client;
 mod config;
 mod proxy;
 mod snap;
+mod transaction;
 // TODO: mod certbot;
 // TODO: mod nginx;
 
