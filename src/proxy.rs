@@ -176,7 +176,6 @@ impl Proxy {
     gzip_min_length 256;
     gzip_comp_level 5;
     gzip_http_version 1.1;
-    gzip_proxy any;
     gzip_vary on;
 "
         } else {
