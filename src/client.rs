@@ -220,6 +220,21 @@ fn set(
     let mut config = Config::read(config_path)?;
     let prev = config.get_key(&listen_domain, key)?;
     let setting = config.set_key(&listen_domain, key, value)?;
+    // If we're changing the SSL setting to redirect, make sure listen-port is changed from 80
+    let mut redirected_port = false;
+    if let ProxySetting::Ssl(Some(SSLSelection::Redirect)) = setting {
+        let prev_port = config.get_key(&listen_domain, ProxySettingKey::ListenPort)?; // should not fail
+        if let ProxySetting::ListenPort(p) = prev_port {
+            if p == 80 {
+                redirected_port = true;
+                config.set_key(
+                    &listen_domain,
+                    ProxySettingKey::ListenPort,
+                    String::from("443"),
+                )?; // should not fail
+            }
+        }
+    }
 
     let mut transaction = Transaction::new();
 
@@ -240,6 +255,11 @@ fn set(
     transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
     println!("Successfully set: {}", &setting);
+    if redirected_port {
+        println!(
+            "Successfully changed \"listen-port\" from port 80 to port 443 due to SSL redirection"
+        )
+    }
     Ok(())
 }
 
