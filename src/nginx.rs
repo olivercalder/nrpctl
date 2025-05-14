@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use std::process::Command;
 
 /// Reloads nginx, checking that the current site configurations are valid and then restarting.
@@ -21,7 +21,11 @@ fn do_reload() -> Result<()> {
         .context("Failed to execute systemctl")?
         .success()
     {
-        return Err(anyhow!("Error when reloading nginx"));
+        let _ = Command::new("journalctl") // just dump whatever journalctl returns
+            .arg("-xeu")
+            .arg("nginx.service")
+            .status();
+        bail!("Error when reloading nginx")
     }
     Ok(())
 }
@@ -45,7 +49,11 @@ fn do_reload() -> Result<()> {
 //         .context("Failed to execute systemctl")?
 //         .success()
 //     {
-//         return Err(anyhow!("Error when restarting nginx"));
-//     }
+//         let _ = Command::new("journalctl") // just dump whatever journalctl returns
+//             .arg("-xeu")
+//             .arg("nginx.service")
+//             .status();
+//         "Error when restarting nginx"
+//     );
 //     Ok(())
 // }

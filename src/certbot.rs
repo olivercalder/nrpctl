@@ -1,4 +1,4 @@
-use anyhow::{anyhow, ensure, Context, Result};
+use anyhow::{anyhow, bail, ensure, Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::fs;
@@ -83,9 +83,7 @@ pub fn handle_ssl_selection(
         .context("Failed to execute certbot")?
         .success()
     {
-        return Err(anyhow!(
-            "Error when obtaining ssl certificate for {listen_domain}"
-        ));
+        bail!("Error when obtaining ssl certificate for {listen_domain}");
     }
 
     // By default, certbot saves the cert and key at:

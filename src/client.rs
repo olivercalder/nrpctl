@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{bail, Context, Result};
 use std::ffi::OsString;
 use std::fs;
 use std::io::{stdout, Write};
@@ -64,9 +64,7 @@ fn init(config_path: PathBuf, sites_enabled_dir: PathBuf) -> Result<()> {
     if fs::exists(&config_path)
         .with_context(|| format!("Failed to check if config file exists: {config_path:?}"))?
     {
-        return Err(anyhow!(
-            "Failed to initialize config: file already exists: {config_path:?}"
-        ));
+        bail!("Failed to initialize config: file already exists: {config_path:?}");
     }
     fs::create_dir_all(&sites_enabled_dir).with_context(|| {
         format!("Failed to create nginx sites enabled dir: {sites_enabled_dir:?}")
@@ -128,9 +126,7 @@ fn add(
         ipv6,
         ssl,
     ) {
-        return Err(anyhow!(
-            "Proxy already exists with the given domain: {listen_domain}",
-        ));
+        bail!("Proxy already exists with the given domain: {listen_domain}");
     }
 
     let mut transaction = Transaction::new();
