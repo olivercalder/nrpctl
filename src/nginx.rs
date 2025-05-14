@@ -18,10 +18,10 @@ fn do_reload() -> Result<()> {
         .arg("reload")
         .arg("nginx.service") // TODO: is this portable?
         .status()
-        .context("failed to execute systemctl")?
+        .context("Failed to execute systemctl")?
         .success()
     {
-        return Err(anyhow!("error when reloading nginx"));
+        return Err(anyhow!("Error when reloading nginx"));
     }
     Ok(())
 }
@@ -42,10 +42,10 @@ fn do_reload() -> Result<()> {
 //         .arg("restart")
 //         .arg("nginx.service") // TODO: is this portable?
 //         .status()
-//         .context("failed to execute systemctl")?
+//         .context("Failed to execute systemctl")?
 //         .success()
 //     {
-//         return Err(anyhow!("error when restarting nginx"));
+//         return Err(anyhow!("Error when restarting nginx"));
 //     }
 //     Ok(())
 // }

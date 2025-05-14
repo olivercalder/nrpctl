@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+use crate::certbot::SSLSelection;
 use crate::proxy::{ProxySettingKey, ProxySettingKeyOptional};
 
 #[derive(Parser)]
@@ -68,10 +69,11 @@ pub enum Command {
         /// Listen on IPv6 as well as IPv4
         #[arg(long)]
         ipv6: bool,
-        // TODO:
-        // /// Set up SSL encryption (HTTPS) using certbot (requires listen port to be 80)
-        // #[arg(short, long)]
-        // ssl: bool,
+
+        /// Set up SSL encryption (HTTPS) using certbot, with or without redirection from port 80.
+        /// If `listen-port` is 80 and SSL is set to redirect, changes `listen-port` to 443.
+        #[arg(long)]
+        ssl: Option<SSLSelection>,
         // TODO:
         // /// Listen for www.<SOURCE_DOMAIN> as well
         // #[arg(short, long)]

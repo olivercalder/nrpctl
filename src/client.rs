@@ -5,10 +5,11 @@ use std::io::{stdout, Write};
 use std::path::{Path, PathBuf};
 use strum::IntoEnumIterator;
 
+use crate::certbot::{self, SSLSelection};
 use crate::cli::Command;
 use crate::config::Config;
 use crate::nginx;
-use crate::proxy::{ProxySettingKey, ProxySettingKeyOptional};
+use crate::proxy::{ProxySetting, ProxySettingKey, ProxySettingKeyOptional};
 use crate::snap;
 use crate::transaction::Transaction;
 
@@ -31,6 +32,7 @@ pub fn run(cmd: Command, config_path: String) -> Result<()> {
             client_max_body_size,
             gzip,
             ipv6,
+            ssl,
         } => add(
             &config_path,
             listen_domain,
@@ -40,6 +42,7 @@ pub fn run(cmd: Command, config_path: String) -> Result<()> {
             client_max_body_size,
             gzip,
             ipv6,
+            ssl,
         ),
         Command::Remove { listen_domain } => remove(&config_path, listen_domain),
         Command::Disable { listen_domain } => disable(&config_path, listen_domain),
@@ -97,16 +100,22 @@ fn render(config_path: &Path, listen_domain: Option<String>) -> Result<()> {
 fn add(
     config_path: &Path,
     listen_domain: String,
-    listen_port: u16,
+    mut listen_port: u16,
     dest_domain: String,
     dest_port: u16,
     client_max_body_size: Option<String>,
     gzip: bool,
     ipv6: bool,
+    ssl: Option<SSLSelection>,
 ) -> Result<()> {
     // Convert gzip bool to Option<bool>
     let gzip = if gzip { Some(true) } else { None };
     let ipv6 = if ipv6 { Some(true) } else { None };
+
+    // Ensure that if SSL is set to redirect from port 80, then the listen port is not also port 80
+    if Some(SSLSelection::Redirect) == ssl && listen_port == 80 {
+        listen_port = 443;
+    }
 
     let mut config = Config::read(config_path)?;
     if config.add(
@@ -117,6 +126,7 @@ fn add(
         client_max_body_size,
         gzip,
         ipv6,
+        ssl,
     ) {
         return Err(anyhow!(
             "Proxy already exists with the given domain: {listen_domain}",
@@ -128,6 +138,13 @@ fn add(
     transaction.do_or_rollback(|| config.write_nginx_site(&listen_domain))?;
 
     transaction.do_or_rollback(nginx::reload)?;
+
+    let ssl_selection = match ssl {
+        Some(sel) => sel,
+        None => SSLSelection::False,
+    };
+
+    transaction.do_or_rollback(|| certbot::handle_ssl_selection(&listen_domain, ssl_selection))?;
 
     transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 
@@ -205,6 +222,7 @@ fn set(
     value: String,
 ) -> Result<()> {
     let mut config = Config::read(config_path)?;
+    let prev = config.get_key(&listen_domain, key)?;
     let setting = config.set_key(&listen_domain, key, value)?;
 
     let mut transaction = Transaction::new();
@@ -212,6 +230,16 @@ fn set(
     transaction.do_or_rollback(|| config.write_nginx_site(&listen_domain))?;
 
     transaction.do_or_rollback(nginx::reload)?;
+
+    if let ProxySetting::Ssl(Some(sel)) = &setting {
+        match prev {
+            ProxySetting::Ssl(None) | ProxySetting::Ssl(Some(SSLSelection::False)) => {
+                transaction
+                    .do_or_rollback(|| certbot::handle_ssl_selection(&listen_domain, *sel))?;
+            }
+            _ => {} // only get SSL cert if there was previously no SSL and now there is
+        }
+    }
 
     transaction.do_or_rollback(|| backup_and_write_config(config_path, &config))?;
 

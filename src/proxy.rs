@@ -2,6 +2,8 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+use crate::certbot::SSLSelection;
+
 // Don't include listen_domain in the configuration, since that value is not configurable after the
 // proxy has been created.
 /// The configuration for a given reverse proxy
@@ -28,6 +30,9 @@ pub struct Proxy {
 
     /// If true, listen on IPv6 as well as IPv4
     ipv6: Option<bool>, // use None instead of Some(false) so false values omitted
+
+    /// Whether to set up an SSL certificate, with or without redirection from port 80
+    ssl: Option<SSLSelection>,
 }
 
 impl Proxy {
@@ -39,6 +44,7 @@ impl Proxy {
         client_max_body_size: Option<String>,
         gzip: Option<bool>,
         ipv6: Option<bool>,
+        ssl: Option<SSLSelection>,
     ) -> Proxy {
         Proxy {
             listen_port,
@@ -48,6 +54,7 @@ impl Proxy {
             disabled: None,
             gzip,
             ipv6,
+            ssl,
         }
     }
 
@@ -77,6 +84,7 @@ impl Proxy {
             ProxySettingKey::Disabled => ProxySetting::Disabled(self.disabled),
             ProxySettingKey::Gzip => ProxySetting::Gzip(self.gzip),
             ProxySettingKey::Ipv6 => ProxySetting::Ipv6(self.ipv6),
+            ProxySettingKey::Ssl => ProxySetting::Ssl(self.ssl),
         }
     }
 
@@ -91,6 +99,7 @@ impl Proxy {
             ProxySetting::Disabled(val) => self.disabled = *val,
             ProxySetting::Gzip(val) => self.gzip = *val,
             ProxySetting::Ipv6(val) => self.ipv6 = *val,
+            ProxySetting::Ssl(val) => self.ssl = *val,
         };
         Ok(setting)
     }
@@ -119,6 +128,11 @@ impl Proxy {
                 self.ipv6 = None;
                 ProxySetting::Ipv6(orig)
             }
+            ProxySettingKeyOptional::Ssl => {
+                let orig = self.ssl;
+                self.ssl = None;
+                ProxySetting::Ssl(orig)
+            }
         }
     }
 
@@ -127,9 +141,15 @@ impl Proxy {
             return format!("\n# {} disabled\n", listen_domain);
         }
 
+        let ssl_selection = match self.ssl {
+            Some(sel) => sel,
+            None => SSLSelection::False,
+        };
+        let ssl = if ssl_selection.is_true() { " ssl" } else { "" };
+
         let listen_port = self.listen_port;
         let listen_ipv6 = if self.ipv6 == Some(true) {
-            format!("    listen [::]:{listen_port};")
+            format!("    listen [::]:{listen_port}{ssl};")
         } else {
             String::new()
         };
@@ -163,6 +183,32 @@ impl Proxy {
             ""
         };
 
+        let ssl_certs = if ssl_selection.is_true() {
+            // TODO: get real paths from SSLInfo
+            format!(
+                "ssl_certificate /etc/letsencrypt/live/{listen_domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{listen_domain}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;",
+            )
+        } else {
+            String::new()
+        };
+        let redirect = if ssl_selection.is_true() {
+            format!(
+                "server {{
+    if ($host = {listen_domain}) {{
+        return 301 https://$host$request_uri;
+    }}
+    server_name {listen_domain};
+    listen 80;
+    return 404;
+}}"
+            )
+        } else {
+            String::new()
+        };
+
         let dest_domain = &self.dest_domain;
         let dest_port = self.dest_port;
 
@@ -176,7 +222,7 @@ impl Proxy {
 server {{
     server_name {listen_domain};
 
-    listen {listen_port};
+    listen {listen_port}{ssl};
 {listen_ipv6}
 {gzip}
     location / {{
@@ -191,7 +237,10 @@ server {{
 
     fastcgi_request_buffering off;
     {max_body_size}
+
+    {ssl_certs}
 }}
+{redirect}
 "
         )
     }
@@ -207,6 +256,7 @@ pub enum ProxySetting {
     Disabled(Option<bool>),
     Gzip(Option<bool>),
     Ipv6(Option<bool>),
+    Ssl(Option<SSLSelection>),
 }
 
 impl fmt::Display for ProxySetting {
@@ -239,6 +289,10 @@ impl fmt::Display for ProxySetting {
                 Some(val) => write!(f, "\"ipv6\" = {}", val),
                 None => write!(f, "# \"ipv6\" is unset"),
             },
+            ProxySetting::Ssl(ref maybe) => match maybe {
+                Some(val) => write!(f, "\"ssl\" = {}", val),
+                None => write!(f, "# \"ssl\" is unset"),
+            },
         }
     }
 }
@@ -255,6 +309,8 @@ pub enum ProxySettingKeyOptional {
     Gzip,
     /// Whether to listen IPv6 as well as IPv4
     Ipv6,
+    /// Whether to set up an SSL certificate, with or without redirection from port 80
+    Ssl,
 }
 
 impl fmt::Display for ProxySettingKeyOptional {
@@ -265,6 +321,7 @@ impl fmt::Display for ProxySettingKeyOptional {
             ProxySettingKeyOptional::Disabled => "disabled",
             ProxySettingKeyOptional::Gzip => "gzip",
             ProxySettingKeyOptional::Ipv6 => "ipv6",
+            ProxySettingKeyOptional::Ssl => "ssl",
         };
         write!(f, "{}", name)
     }
@@ -288,6 +345,10 @@ pub enum ProxySettingKey {
     Gzip,
     /// Whether to listen on IPv6 as well as IPv4
     Ipv6,
+    /// Whether to set up an SSL certificate, with or without redirection from port 80.
+    /// If `listen-port` is 80 and SSL is set to redirect, changes `listen-port` to 443.
+    /// [possible values: false, no-redirect, redirect]
+    Ssl,
 }
 
 impl ProxySettingKey {
@@ -296,34 +357,40 @@ impl ProxySettingKey {
             ProxySettingKey::ListenPort => {
                 let port: u16 = value
                     .parse()
-                    .context("Failed to parse value as listen port: {value}")?;
+                    .with_context(|| format!("Failed to parse value as listen port: {value}"))?;
                 ProxySetting::ListenPort(port)
             }
             ProxySettingKey::DestDomain => ProxySetting::DestDomain(value), // TODO: validate in some way
             ProxySettingKey::DestPort => {
-                let port: u16 = value
-                    .parse()
-                    .context("Failed to parse value as destination port: {value}")?;
+                let port: u16 = value.parse().with_context(|| {
+                    format!("Failed to parse value as destination port: {value}")
+                })?;
                 ProxySetting::DestPort(port)
             }
             ProxySettingKey::ClientMaxBodySize => ProxySetting::ClientMaxBodySize(Some(value)), // TODO: validate
             ProxySettingKey::Disabled => {
                 let disabled: bool = value
                     .parse()
-                    .context("Failed to parse value as boolean: {value}")?;
+                    .with_context(|| format!("Failed to parse value as boolean: {value}"))?;
                 ProxySetting::Disabled(Some(disabled))
             }
             ProxySettingKey::Gzip => {
                 let gzip: bool = value
                     .parse()
-                    .context("Failed to parse value as boolean: {value}")?;
+                    .with_context(|| format!("Failed to parse value as boolean: {value}"))?;
                 ProxySetting::Gzip(Some(gzip))
             }
             ProxySettingKey::Ipv6 => {
                 let ipv6: bool = value
                     .parse()
-                    .context("Failed to parse value as boolean: {value}")?;
+                    .with_context(|| format!("Failed to parse value as boolean: {value}"))?;
                 ProxySetting::Ipv6(Some(ipv6))
+            }
+            ProxySettingKey::Ssl => {
+                let ssl: SSLSelection = value
+                    .parse()
+                    .with_context(|| format!("Failed to parse value as SSLSelection [possible values: false, no-redirect, redirect]: {value}"))?;
+                ProxySetting::Ssl(Some(ssl))
             }
         })
     }

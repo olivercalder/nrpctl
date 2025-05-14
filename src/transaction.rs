@@ -4,9 +4,12 @@ use anyhow::{Error, Result};
 /// is capable of rolling back any side-effects which the function causes. When pushed to the
 /// transaction, each function is executed immediately, potentially causing immediate side-effects.
 /// If calling the function results in an error, each callback corresponding to a function which
-/// has previously succeeded is called in reverse order, thus undoing all previously-enacted
-/// changes, and the initial error is returned, chained to any errors which resulted from any
-/// failed restore callback.
+/// has previously succeeded is called in the same order which those corresponding functions were
+/// called, thus undoing all previously-enacted changes, and the initial error is returned, chained
+/// to any errors which resulted from any failed restore callback. The changes are rolled back in
+/// order, contrary to most defer systems, because transactions are intended to be used for changes
+/// of the form "edit config, write config, test config, save config", so it's important to undo
+/// those actions in the same order.
 pub struct Transaction {
     stack: Vec<Box<dyn FnOnce() -> Result<String>>>,
 }
@@ -36,7 +39,7 @@ impl Transaction {
     }
 
     fn rollback(&mut self, cause: Error) -> Error {
-        self.stack.drain(..).rev().fold(cause, |err, f| match f() {
+        self.stack.drain(..).fold(cause, |err, f| match f() {
             Ok(desc) => {
                 println!("{}", desc);
                 err

@@ -5,6 +5,7 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::certbot::SSLSelection;
 use crate::proxy::{Proxy, ProxySetting, ProxySettingKey, ProxySettingKeyOptional};
 
 #[derive(Serialize, Deserialize)]
@@ -159,6 +160,7 @@ impl Config {
         client_max_body_size: Option<String>,
         gzip: Option<bool>,
         ipv6: Option<bool>,
+        ssl: Option<SSLSelection>,
     ) -> bool {
         let proxy = Proxy::new(
             listen_port,
@@ -167,6 +169,7 @@ impl Config {
             client_max_body_size,
             gzip,
             ipv6,
+            ssl,
         );
         self.proxies.insert(listen_domain, proxy).is_some()
     }
