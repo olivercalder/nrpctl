@@ -194,7 +194,7 @@ impl Proxy {
         } else {
             String::new()
         };
-        let redirect = if ssl_selection.is_true() {
+        let redirect = if ssl_selection == SSLSelection::Redirect {
             format!(
                 "server {{
     if ($host = {listen_domain}) {{
